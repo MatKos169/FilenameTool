@@ -75,7 +75,6 @@ def getCaptureTime(filepath):
                     dateobj = datetime.datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
             return [True, dateobj]
         except:
-            log(f'failed to get date from video {filepath}')
             return [False,]
 
     elif filepath.split('.')[-1] in imgExt:
@@ -104,23 +103,30 @@ def getCaptureTime(filepath):
 
 ###Runtime
 images, videos = getAllFiles()
-failed, success = 0, 0
+failed, success, skipped = 0, 0, 0
 print(str(images)+'\n\n'+str(videos))
 
 
 for item in videos+images:
     action = getCaptureTime(item)
     if not action[0]:
-        log(f"could not find metadata for File: {item}")
+        log(f"error:    could not find metadata for File: {item}")
+        failed += 1
     elif action[0]:
         newFileName = f"{config['config']['workdir']}/{action[1].strftime('%Y-%m-%d_%H-%M-%S')}.{item.split('.')[-1]}"
-        log(f"renaming {item} to {newFileName}")
-        try:
-            os.rename(item, newFileName)
-            success += 1
-        except:
-            failed += 1
 
+        try:
+            if item == newFileName:
+                log(f"info:    {item} is formated correctly. skipping")
+                skipped += 1
+            else:
+                log(f"info:    renaming {item} to {newFileName}")
+                os.rename(item, newFileName)
+                success += 1
+        except:
+            log(f"error:    renaming of {item} failed")
+            failed += 1
+log(f"\nresults:\ntotal Files:{len(videos)+len(images)}\nsuccess: {success}\nfailed: {failed}\nskipped: {skipped}")
 
 
 
