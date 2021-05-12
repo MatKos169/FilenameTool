@@ -3,6 +3,6 @@ data/
 builds/
 dist/
 __pycache__/
-main.spec
+*.spec
 *.ini
 *.log
