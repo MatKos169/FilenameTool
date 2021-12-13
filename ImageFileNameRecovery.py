@@ -8,6 +8,11 @@ from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
 
 
+##datum_nummer
+##index von nummer immer datum + 1
+##wenn schon vorhanden nummer + 1
+
+
 class FileHandler:
     def __init__(self, path, filename):
         self.path = path
@@ -15,6 +20,7 @@ class FileHandler:
         self.filetype = filename.split('.')[-1]
         self.targetName = self.filename
         self.validName = False
+        self.prefix = str()
 
     def getFiletype(self):
         return self.filetype
@@ -28,11 +34,20 @@ class FileHandler:
     def getFullPath(self):
         return os.path.join(self.path, self.filename+'.'+self.filetype)
 
+    def getFullTargetPath(self):
+        return os.path.join(self.path, self.targetName+'.'+self.filetype)
+
     def getTargetName(self):
         return self.targetName
 
     def getValidName(self):
         return self.validName
+
+    def getPrefix(self):
+        return self.prefix
+
+    def setPrefix(self, prefix):
+        self.prefix = prefix
 
     def setValidName(self, status):
         self.validName = status
@@ -42,6 +57,7 @@ class FileHandler:
 
     def rename(self):
         if not(self.targetName == self.filename):
+            print(f'{self.filename}.{self.filetype} --> {self.targetName}.{self.filetype} - removed prefix: {self.prefix}')
             os.rename(self.getFullPath(), os.path.join(self.path, self.targetName+'.'+self.filetype))
             self.filename = self.targetName
 
@@ -57,12 +73,22 @@ def run(config):
         removeTag(config, Task, ignoreList)
         found, section = check4Date(Task)
 
+        # Move Date to first name section
         if found and not section == 0:
             splitName = Task.getTargetName().split('_')
             splitName.insert(0, splitName.pop(section))
-            print('_'.join(splitName), Task.getTargetName())
             Task.setTargetName('_'.join(splitName))
-        
+    targetNames = list()
+
+    #Doppelte Dateinamen erkennen
+    for Task in ToDo:
+        if Task.getFullTargetPath() in targetNames:
+            index = 1
+            Task.setTargetName(f'{Task.getTargetName()}_{index}')
+            while Task.getFullTargetPath() in targetNames:
+                index += 1
+                Task.setTargetName(f'{Task.getTargetName()}_{index}')
+        targetNames.append(Task.getFullTargetPath())
         Task.rename()
         Task.setValidName(found)
 
@@ -90,17 +116,18 @@ def check4Date(Task):
 
 def validateDate(part):
     result = False
-    if not result:
-        try:
-            date = datetime.datetime.strptime(part, '%Y%m%d')
-            result = True
-        except ValueError as e:
-            pass
-    if not result:
-        try:
-            date = datetime.datetime.strptime(part, '%Y%d%m')
-        except ValueError as e:
-            pass
+    if len(part) == 8:
+        if not result:
+            try:
+                date = datetime.datetime.strptime(part, '%Y%m%d')
+                result = True
+            except ValueError as e:
+                pass
+        if not result:
+            try:
+                date = datetime.datetime.strptime(part, '%Y%d%m')
+            except ValueError as e:
+                pass
     return result
 
 
@@ -108,6 +135,7 @@ def removeTag(config, Task, ignoreList):
     splitName = Task.getName().split('_')
     if len(splitName) >= 2:
         if splitName[0] in config['config']['prefix'].split(':'):
+            Task.setPrefix(splitName[0])
             splitName.pop(0)
             Task.setTargetName('_'.join(splitName))
 
