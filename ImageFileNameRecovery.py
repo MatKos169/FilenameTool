@@ -274,7 +274,7 @@ def newConfig(filename):
     config = configparser.ConfigParser()
     config['config'] = {'workdir': '.\\data',
                         'prefix': 'MOV:VID:DSC:IMG',
-                        'blacklist': 'SCAN',
+                        'blacklist': 'SCAN:SCV',
                         'filetypes': 'mp4,jpg,jpeg,png,avi,flv'}
     with open(filename, 'w') as configfile:
         config.write(configfile)
