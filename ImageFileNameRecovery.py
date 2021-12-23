@@ -1,4 +1,5 @@
 import exifread
+import platform
 import datetime
 from time import sleep
 import os #os.rename('old','new')
@@ -8,16 +9,11 @@ from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
 
 
-##datum_nummer
-##index von nummer immer datum + 1
-##wenn schon vorhanden nummer + 1
-
-
 class FileHandler:
     def __init__(self, path, filename):
         self.path = path
         self.filename = str('.').join(filename.split('.')[:-1])
-        self.filetype = filename.split('.')[-1]
+        self.filetype = filename.split('.')[-1].lower()
         self.targetName = self.filename
         self.validName = False
         self.prefix = str()
@@ -46,6 +42,48 @@ class FileHandler:
     def getPrefix(self):
         return self.prefix
 
+    def getDateFromMetadata(self):
+        #pictures only
+        try:
+            file = open(self.getFullPath(), 'rb')
+            tags = exifread.process_file(file, stop_tag="EXIF DateTimeOriginal")
+            file.close()
+            if len(tags) == 0:
+                raise UnboundLocalError('Datei hat kein Aufnahmezeitpunkt')
+            dateTaken = tags["EXIF DateTimeOriginal"]
+            # try:
+            dateobj = datetime.datetime.strptime(str(dateTaken), '%Y:%m:%d %H:%M:%S')
+            self.setTargetName(dateobj.strftime('%Y%m%d') + '_' + self.getTargetName())
+            self.setValidName(True)
+        except UnboundLocalError as e:
+            pass
+        except Exception as e:
+            print(e)
+
+        #video
+        if not self.validName:
+            try:
+                file = createParser(self.getFullPath())
+                metadata = extractMetadata(file)
+                file.close()
+                for line in metadata.exportPlaintext():
+                    if line.split(':')[0] == '- Creation date':
+                        time = ''.join(line.split('Creation date:')[1:])[1:]
+                        dateobj = datetime.datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
+                if dateobj.strftime('%Y%m%d') != '19040101':
+                    self.setTargetName(dateobj.strftime('%Y%m%d') + '_' + self.getTargetName())
+                    self.setValidName(True)
+                else:
+                    print('Kein Datum in Metadaten gefunden. Verwende Datei erstellungs Datum (UTC)')
+            except Exception as e:
+                print(e)
+        if not self.validName:
+            stamp = os.path.getctime(self.getFullPath())
+            dateobj = datetime.datetime.fromtimestamp(stamp)
+            self.setTargetName(dateobj.strftime('%Y%m%d') + '_' + self.getTargetName())
+            self.setValidName(True)
+
+
     def setPrefix(self, prefix):
         self.prefix = prefix
 
@@ -56,20 +94,44 @@ class FileHandler:
         self.targetName = name
 
     def rename(self):
-        if not(self.targetName == self.filename):
-            print(f'{self.filename}.{self.filetype} --> {self.targetName}.{self.filetype} - removed prefix: {self.prefix}')
-            os.rename(self.getFullPath(), os.path.join(self.path, self.targetName+'.'+self.filetype))
+        if not(self.targetName == self.filename) and self.validName:
+            print(f'   {self.filename}.{self.filetype} --> {self.targetName}.{self.filetype} - Entfernter prefix: {self.prefix}')
+            try:
+                os.rename(self.getFullPath(), os.path.join(self.path, self.targetName+'.'+self.filetype))
+            except FileExistsError as e:
+                print(f'Dateiname ist bereits vorhanden. Erweitere Dateiname...')
+                count = 1
+                done = False
+                while not done:
+                    try:
+                        os.rename(self.getFullPath(), os.path.join(self.path, self.targetName + f'_{count}.' + self.filetype))
+                    except FileExistsError as e:
+                        count += 1
+                    except Exception as e:
+                        print(e)
+                    else:
+                        done = True
+
+            except Exception as e:
+                print(e)
             self.filename = self.targetName
+        elif self.targetName == self.filename:
+            pass
+        else:
+            print(' Name ist noch nicht Final bestimmt. ')
 
 
 def run(config):
+    print('Suche nach Dateien')
     ToDo = getFiles(config)
-    print(ToDo)
     TotalToDo = len(ToDo)
-    print(f'Found {TotalToDo} Files to Check')
+    print(f'{TotalToDo} Dateien zur verarbeitung gefunden')
     ignoreList = list()
 
+    print('Beginne arbeit')
+
     for Task in ToDo:
+        print(f'Datei {ToDo.index(Task)+1} / {TotalToDo}')
         removeTag(config, Task, ignoreList)
         found, section = check4Date(Task)
 
@@ -78,32 +140,51 @@ def run(config):
             splitName = Task.getTargetName().split('_')
             splitName.insert(0, splitName.pop(section))
             Task.setTargetName('_'.join(splitName))
-    targetNames = list()
+        Task.setValidName(found)
+
+    print("\n\nPasse Dateinamen an...\n\n")
 
     #Doppelte Dateinamen erkennen
     for Task in ToDo:
-        if Task.getFullTargetPath() in targetNames:
-            index = 1
-            Task.setTargetName(f'{Task.getTargetName()}_{index}')
-            while Task.getFullTargetPath() in targetNames:
-                index += 1
-                Task.setTargetName(f'{Task.getTargetName()}_{index}')
-        targetNames.append(Task.getFullTargetPath())
+        print(f'\nDatei {ToDo.index(Task) + 1} / {TotalToDo}')
         Task.rename()
-        Task.setValidName(found)
 
-
-#ToDo set new names if not already valid name
-
+    print('\n\nEntferne bearbeitete Dateien aus der ToDo liste...\n\n')
+    #Remove ToDos with valid Names
+    newToDo = ToDo.copy()
     for Task in ToDo:
-        Task.rename()
+        if Task.getValidName():
+            newToDo.pop(newToDo.index(Task))
+        else:
+            #rename from metadata
+            print(f'Datei "{Task.getTargetName()}.{Task.getFiletype()}" muss noch verarbeitet werden.')
+    ToDo = newToDo
+    del newToDo
+    TotalToDo = len(ToDo)
+    print(f'\n\nEs werden insgesamt {TotalToDo} Dateien weiter verarbeiet.\n\n')
 
+    #Rename Files from Metadata
+    print('Versuche neuen Dateinamen aus Matadaten zu holen...')
+    for Task in ToDo:
+        print(f'Datei {ToDo.index(Task)+1} / {TotalToDo}')
+        if Task.getPrefix() not in config['config']['blacklist'].split(':'):
+            Task.getDateFromMetadata()
+        else:
+            print(f'Ignoriere {Task.getName()}.{Task.getFiletype()} --> Prefix in Blacklist gefunden (config.ini)')
+
+    print("\n\nPasse Dateinamen an...\n\n")
+    #Doppelte Dateinamen erkennen
+    for Task in ToDo:
+        print(f'\nDatei {ToDo.index(Task) + 1} / {TotalToDo}')
+        Task.rename()
+    print('Done')
 
 def check4Date(Task):
     position = int()
     splitName = Task.getTargetName().split('_')
+    found = False
     for junk in splitName:
-        found = False
+
         if not found:
             if all(c in "0123456789-." for c in junk):
                 result = validateDate(junk)
@@ -132,17 +213,23 @@ def validateDate(part):
 
 
 def removeTag(config, Task, ignoreList):
+    print('   Suche nach Prefix')
     splitName = Task.getName().split('_')
+    if len(splitName) == 1:
+        splitName = Task.getName().split('-')
     if len(splitName) >= 2:
         if splitName[0] in config['config']['prefix'].split(':'):
+            print('   Prefix gefunden')
             Task.setPrefix(splitName[0])
             splitName.pop(0)
+            print('   Prefix entfernt')
             Task.setTargetName('_'.join(splitName))
 
         elif splitName[0] not in ignoreList and not all(c in "0123456789-." for c in splitName[0]):
+            print(f'   Potentieller Prefix {splitName[0]} gefunden.')
             aws = str()
             while aws.lower() not in ('y', 'n'):
-                aws = input(f'Soll "{splitName[0]}" als Tag entfernt werden?')
+                aws = input(f'Soll "{splitName[0]}" als Prefix entfernt werden? y/n')
             if aws.lower() == 'y':
                 oldConfig = config['config']['prefix']
                 config.set('config', 'prefix', oldConfig+f":{splitName[0]}")
@@ -154,15 +241,21 @@ def removeTag(config, Task, ignoreList):
                 Task.setTargetName('_'.join(splitName))
             else:
                 ignoreList.append(splitName[0])
+                print(f'{splitName[0]} wird nicht weiter als Prefix behandelt')
         else:
             pass
 
 
 def getFiles(config):
+    extentions = list()
+    for ext in config['config']['filetypes'].split(','):
+        extentions.append(ext.lower())
+        extentions.append(ext.upper())
+
     totalFiles = list()
     for root, dirs, files in os.walk(config['config']['workdir'], topdown=True):
         for name in files:
-            if name.endswith(tuple(config['config']['filetypes'].split(','))):
+            if name.endswith(tuple(extentions)):
                 totalFiles.append(FileHandler(root, name))
     return totalFiles
 
@@ -172,27 +265,32 @@ def getFiles(config):
 def load_config(configFile):
     config = configparser.ConfigParser()
     config.read(configFile)
+    print('Config geladen')
 
     return config
 
 
 def newConfig(filename):
-    print('config.ini could not be found. Creating new config File')
     config = configparser.ConfigParser()
     config['config'] = {'workdir': '.\\data',
-                        'prefix': 'MOV:VID:DSC:IMG'}
+                        'prefix': 'MOV:VID:DSC:IMG',
+                        'blacklist': 'SCAN',
+                        'filetypes': 'mp4,jpg,jpeg,png,avi,flv'}
     with open(filename, 'w') as configfile:
         config.write(configfile)
         configfile.close()
+    print('Neue config.ini angelegt. Einstellungen festlegen und erneut starten')
 
 
 if __name__ == '__main__':
+    if platform.system() != 'Windows':
+        print("Nicht unterstütze Platform... Umbenennen könnte zu fehlern führen")
+    print('Suche config.ini...')
     if os.path.exists('config.ini'):
         load_config('config.ini')
         run(load_config('config.ini'))
     else:
+        print('config.ini nicht gefunden. Lege neue an')
         newConfig('config.ini')
-        print('Created new config file')
         sleep(10)
         quit()
-
