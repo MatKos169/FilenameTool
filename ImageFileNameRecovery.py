@@ -16,7 +16,16 @@ class FileHandler:
         self.filetype = filename.split('.')[-1].lower()
         self.targetName = self.filename
         self.validName = False
-        self.prefix = str()
+        self.meta_lock = False
+
+    def isLocked(self):
+        return self.meta_lock
+
+    def setMetaLock(self):
+        self.meta_lock = True
+
+    def resetMetaLock(self):
+        self.meta_lock = False
 
     def getFiletype(self):
         return self.filetype
@@ -38,9 +47,6 @@ class FileHandler:
 
     def getValidName(self):
         return self.validName
-
-    def getPrefix(self):
-        return self.prefix
 
     def getDateFromMetadata(self):
         #pictures only
@@ -83,10 +89,6 @@ class FileHandler:
             self.setTargetName(dateobj.strftime('%Y%m%d') + '_' + self.getTargetName())
             self.setValidName(True)
 
-
-    def setPrefix(self, prefix):
-        self.prefix = prefix
-
     def setValidName(self, status):
         self.validName = status
 
@@ -94,8 +96,11 @@ class FileHandler:
         self.targetName = name
 
     def rename(self):
+        if len(self.targetName) >= 2 and self.targetName[-1] == '_':
+            self.setTargetName(self.targetName[0:-1])
+
         if not(self.targetName == self.filename) and self.validName:
-            print(f'   {self.filename}.{self.filetype} --> {self.targetName}.{self.filetype} - Entfernter prefix: {self.prefix}')
+            print(f'   {self.filename}.{self.filetype} --> {self.targetName}.{self.filetype}')
             try:
                 os.rename(self.getFullPath(), os.path.join(self.path, self.targetName+'.'+self.filetype))
             except FileExistsError as e:
@@ -132,7 +137,7 @@ def run(config):
 
     for Task in ToDo:
         print(f'Datei {ToDo.index(Task)+1} / {TotalToDo}')
-        removeTag(config, Task, ignoreList)
+        removeTags(config, Task, ignoreList)
         found, section = check4Date(Task)
 
         # Move Date to first name section
@@ -167,10 +172,10 @@ def run(config):
     print('Versuche neuen Dateinamen aus Matadaten zu holen...')
     for Task in ToDo:
         print(f'Datei {ToDo.index(Task)+1} / {TotalToDo}')
-        if Task.getPrefix() not in config['config']['blacklist'].split(':'):
+        if not Task.isLocked():
             Task.getDateFromMetadata()
         else:
-            print(f'Ignoriere {Task.getName()}.{Task.getFiletype()} --> Prefix in Blacklist gefunden (config.ini)')
+            print(f'Ignoriere {Task.getName()}.{Task.getFiletype()} --> Tag in Blacklist gefunden (config.ini)')
 
     print("\n\nPasse Dateinamen an...\n\n")
     #Doppelte Dateinamen erkennen
@@ -178,6 +183,8 @@ def run(config):
         print(f'\nDatei {ToDo.index(Task) + 1} / {TotalToDo}')
         Task.rename()
     print('Done')
+    sleep(300)
+
 
 def check4Date(Task):
     position = int()
@@ -212,36 +219,39 @@ def validateDate(part):
     return result
 
 
-def removeTag(config, Task, ignoreList):
-    print('   Suche nach Prefix')
+def removeTags(config, Task, ignoreList):
+    print('   Suche nach Tags')
     splitName = Task.getName().split('_')
     if len(splitName) == 1:
         splitName = Task.getName().split('-')
-    if len(splitName) >= 2:
-        if splitName[0] in config['config']['prefix'].split(':'):
-            print('   Prefix gefunden')
-            Task.setPrefix(splitName[0])
-            splitName.pop(0)
-            print('   Prefix entfernt')
-            Task.setTargetName('_'.join(splitName))
 
-        elif splitName[0] not in ignoreList and not all(c in "0123456789-." for c in splitName[0]):
-            print(f'   Potentieller Prefix {splitName[0]} gefunden.')
+    newSplitName = splitName.copy()
+    for part in splitName:
+        if part in config['config']['blacklist'].split(':'):
+            Task.setMetaLock()
+        if part in config['config']['tag'].split(':'):
+            print(f'   Tag gefunden {part}')
+            newSplitName.pop(newSplitName.index(part))
+            print('   Tag entfernt')
+            Task.setTargetName('_'.join(newSplitName))
+
+        elif part not in ignoreList and not all(c in "0123456789-." for c in part):
+            print(f'   Potentielles Tag {part} gefunden.')
             aws = str()
             while aws.lower() not in ('y', 'n'):
-                aws = input(f'Soll "{splitName[0]}" als Prefix entfernt werden? y/n')
+                aws = input(f'Soll "{part}" als Tag entfernt werden? y/n')
             if aws.lower() == 'y':
-                oldConfig = config['config']['prefix']
-                config.set('config', 'prefix', oldConfig+f":{splitName[0]}")
+                oldConfig = config['config']['tag']
+                config.set('config', 'tag', oldConfig+f":{part}")
 
                 with open('config.ini', 'w') as configfile:
                     config.write(configfile)
                 configfile.close()
-                splitName.pop(0)
-                Task.setTargetName('_'.join(splitName))
+                newSplitName.pop(newSplitName.index(part))
+                Task.setTargetName('_'.join(newSplitName))
             else:
-                ignoreList.append(splitName[0])
-                print(f'{splitName[0]} wird nicht weiter als Prefix behandelt')
+                ignoreList.append(splitName.index(part))
+                print(f'{part} wird nicht weiter als Tag behandelt')
         else:
             pass
 
@@ -273,7 +283,7 @@ def load_config(configFile):
 def newConfig(filename):
     config = configparser.ConfigParser()
     config['config'] = {'workdir': '.\\data',
-                        'prefix': 'MOV:VID:DSC:IMG',
+                        'tag': 'MOV:VID:DSC:IMG',
                         'blacklist': 'SCAN:SCV',
                         'filetypes': 'mp4,jpg,jpeg,png,avi,flv'}
     with open(filename, 'w') as configfile:
