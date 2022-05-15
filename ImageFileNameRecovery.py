@@ -229,6 +229,18 @@ def removeTags(config, Task, ignoreList):
     for part in splitName:
         if part in config['config']['blacklist'].split(':'):
             Task.setMetaLock()
+
+        if part not in config['config']['tag'].split(':') and bool(config['config']['removeShortSegments']) and len(part) < int(config['config']['segmentLength']):
+            print(f'Kurzes Segment gefunden --> {part}')
+            try:
+                newSplitName.pop(newSplitName.index(part))
+            except:
+                print('Segment konnte nicht entfernt werden. Ist das segment ein definierter Tag?')
+            finally:
+                Task.setTargetName('_'.join(newSplitName))
+                print('Kurzes Segment entfernt')
+                pass
+
         if part in config['config']['tag'].split(':'):
             print(f'   Tag gefunden {part}')
             newSplitName.pop(newSplitName.index(part))
@@ -285,7 +297,9 @@ def newConfig(filename):
     config['config'] = {'workdir': '.\\data',
                         'tag': 'MOV:VID:DSC:IMG',
                         'blacklist': 'SCAN:SCV',
-                        'filetypes': 'mp4,jpg,jpeg,png,avi,flv'}
+                        'filetypes': 'mp4,jpg,jpeg,png,avi,flv',
+                        'removeShortSegments' : 'True',
+                        'segmentLength' : '4'}
     with open(filename, 'w') as configfile:
         config.write(configfile)
         configfile.close()
