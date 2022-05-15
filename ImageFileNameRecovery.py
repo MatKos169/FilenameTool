@@ -169,7 +169,7 @@ def run(config):
     print(f'\n\nEs werden insgesamt {TotalToDo} Dateien weiter verarbeiet.\n\n')
 
     #Rename Files from Metadata
-    print('Versuche neuen Dateinamen aus Matadaten zu holen...')
+    print('Versuche neuen Dateinamen aus Metadaten zu holen...')
     for Task in ToDo:
         print(f'Datei {ToDo.index(Task)+1} / {TotalToDo}')
         if not Task.isLocked():
@@ -297,7 +297,6 @@ if __name__ == '__main__':
         print("Nicht unterstütze Platform... Umbenennen könnte zu fehlern führen")
     print('Suche config.ini...')
     if os.path.exists('config.ini'):
-        load_config('config.ini')
         run(load_config('config.ini'))
     else:
         print('config.ini nicht gefunden. Lege neue an')
