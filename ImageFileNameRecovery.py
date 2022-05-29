@@ -250,17 +250,25 @@ def removeTags(config, Task, ignoreList):
         elif part not in ignoreList and not all(c in "0123456789-." for c in part):
             print(f'   Potentielles Tag {part} gefunden.')
             aws = str()
+            if bool(config['config']['forcetagremoval']):
+                print('forcetagremoval ist aktiv. Überspringe nachfrage...')
+                aws = 'y'
             while aws.lower() not in ('y', 'n'):
                 aws = input(f'Soll "{part}" als Tag entfernt werden? y/n')
             if aws.lower() == 'y':
-                oldConfig = config['config']['tag']
-                config.set('config', 'tag', oldConfig+f":{part}")
+                if not bool(config['config']['forcetagremoval']):
+                    print('Füge tag zur config hinzu')
+                    oldConfig = config['config']['tag']
+                    config.set('config', 'tag', oldConfig+f":{part}")
 
-                with open('config.ini', 'w') as configfile:
-                    config.write(configfile)
-                configfile.close()
-                newSplitName.pop(newSplitName.index(part))
-                Task.setTargetName('_'.join(newSplitName))
+                    with open('config.ini', 'w') as configfile:
+                        config.write(configfile)
+                    configfile.close()
+                try:
+                    newSplitName.pop(newSplitName.index(part))
+                    Task.setTargetName('_'.join(newSplitName))
+                except ValueError:
+                    print('Tag wurde bereits entfernt')
             else:
                 ignoreList.append(splitName.index(part))
                 print(f'{part} wird nicht weiter als Tag behandelt')
@@ -284,12 +292,39 @@ def getFiles(config):
 
 ##Configuration Functions
 
+def configVersionCheck(config, configFile):
+    print('Prüfe Config Version')
+    if config.has_section('Version'):
+        print(f"Config version: {config['Version']['version']}")
+    else:
+        print('Version nicht gefunden.\n Setze version 2')
+        config['Version'] = {'version': '2'}
+        with open(configFile, 'w') as configfile:
+            config.write(configfile)
+            configfile.close()
+        print('Version angelegt.')
+
+    if config.has_option('Version', 'version'):
+        if int(config['Version']['version']) == 2:
+            config.set('config', 'forceTagRemoval', 'False')
+            with open(configFile, 'w') as configfile:
+                config.write(configfile)
+            print('Update auf Version 3 erfolgreich.')
+            config.set('Version', 'version', '3')
+            with open(configFile, 'w') as configfile:
+                config.write(configfile)
+            print('Lade Config neu')
+            config = configparser.ConfigParser()
+            config.read(configFile)
+    return config
+
+
 def load_config(configFile):
     config = configparser.ConfigParser()
     config.read(configFile)
     print('Config geladen')
 
-    return config
+    return configVersionCheck(config, configFile)
 
 
 def newConfig(filename):
@@ -299,7 +334,10 @@ def newConfig(filename):
                         'blacklist': 'SCAN:SCV',
                         'filetypes': 'mp4,jpg,jpeg,png,avi,flv',
                         'removeShortSegments' : 'True',
-                        'segmentLength' : '4'}
+                        'segmentLength': '4',
+                        'forceTagRemoval': 'False'}
+    config['Version'] = {'version': '2'}
+
     with open(filename, 'w') as configfile:
         config.write(configfile)
         configfile.close()
